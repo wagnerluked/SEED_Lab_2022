@@ -1,20 +1,17 @@
+//The purpose of this code is to turn a wheel to a given quadrant using a PI controller
+
 #include <Encoder.h>
-
-//The purpose of this code is to find the transfer function of a motor
-//by applying a step input and recording the angular velocity.
-
 #include "Arduino.h"
 
 //Variables
 
-int ENCA = 3;                // Encoder Channel A (Yellow) on int pin 2
-int ENCB = 2;              // Encoder Channel B (White) on pin X 
-Encoder enc(ENCA, ENCB);
-//#define MAXPULSES 800         // Encoder pulses per revolution
-
 // varaibles for serial communication
 String InputString = ""; // a string to hold incoming data
 bool StringComplete = false;
+
+int ENCA = 3;                // Encoder Channel A (Yellow) on int pin 2
+int ENCB = 2;              // Encoder Channel B (White) on pin X 
+Encoder enc(ENCA, ENCB);
 
 //Constants
 const float Pi = 3.14159;
@@ -29,7 +26,7 @@ int statusFlag = 12;
 
 //Motor Contol
 //Motor volt pwm command
-int m1vCommand = 0;
+float m1vCommand = 0;
 int m2vCommand = 0;
 
 //Encoder and calculations
@@ -45,25 +42,33 @@ int stopFlag;
 bool newValue = true;
 
 //Controller
-  float Kp = 0.253604;
-  float Ki = 0.008536;
+  float Kp = 1.25; // v/rad
+  float Ki = 0.00008;
   float I = 0;
-
-  int error = 0;
-  int errorPast = 0;
+  float error = 0;
+  float output = 0;
+  float umax = 7.5;
   int Ts = 0;
   int Tc = 0;
   int refVal = 0;
   int currentVal = 0;
-  float output = 0;
+  int quad = 0;
+  float radError = 0;
+
+
+  float rad = 0;
 
 void setup() {
   Serial.begin(115200);
 
+  // reserve 200 bytes for the inputString:
+  InputString.reserve(200);
+  Serial.println("Ready!"); // Let anyone on the other end of the serial line know that Arduino is ready
+  stopFlag = false;
+
+  //Configures pins
   pinMode(ENCA, INPUT_PULLUP);
   pinMode(ENCB, INPUT);
-  
-  //Configures pins
   pinMode(enable, OUTPUT);
   pinMode(motor1Dir, OUTPUT);
   pinMode(motor2Dir, OUTPUT);
@@ -78,30 +83,108 @@ void setup() {
 }
 
 void loop() {
+  //Clears flag for MATLAB serial reading
+  if (StringComplete) {
+    StringComplete = false;
+  }
 
-  //Reference value -> comes from Jam, set to 400 counts right now to move wheel 180 deg
-  refVal = 400
-  //gets current value of motor
+  if(millis() > 1000){
+    
+  
+  //read in value here***********************************************
+  //quad = readin;
+
+  //Sets reference value given quadrant
+  if(quad == 1) refVal = 0;
+  else if(quad == 2) refVal = 800;
+  else if(quad == 3) refVal = 1600;
+  else if(quad == 4) refVal = 2400;
+  
+  //gets current position of motor
   currentVal = enc.read();
- //Calculates error
+  
+  //Calculates error
   error = refVal - currentVal;
-  //Gets intesgral value
-  I = I + Ts * error;
-  //Calculates output error in volts (I think)
-  output = Kp * error + Ki * I;
+  radError = error * 2 * PI / 3200;
+  //Provides error bounds
+  if(abs(error) <= 25){
+    radError = 0;
+  }
+ 
+  //Gets integral value
+  I = I + (Ts * radError);
+  //Calculates output error in volts
+  output = (Kp * radError) + (Ki * I);
 
-//need to implment
-//If abs(u)>umax,
-//u := sgn(u)*umax
-//e = sgn(e)*min(umax / Kp, abs(e))
-//I := (u-Kp*e-Kd*D)/Ki
+//Serial.print(error);
+//  Serial.print("\t");
+
+//Keeps output confined to voltage range of battery
+  if (abs(output)> umax) {
+    output = sgn(output)* umax;
+    error = sgn(radError)* min(umax / Kp, abs(radError));
+    I = (output - (Kp * error)) / Ki;
+  }
+  
+  //Sets direction based on if error is pos or neg
+  if(sgn(radError) == -1) {
+    digitalWrite(motor1Dir, HIGH);
+  }
+  else {
+    digitalWrite(motor1Dir, LOW);
+  }
+
+  //turns volts into pwm amount
+  m1vCommand = abs(output) / 7.6 * 256;
+
+
+//  Serial.print(error);
+//  Serial.print("\t");
+//  Serial.print(output);
+//  Serial.print("\t");
+//  Serial.println(m1vCommand);
 
   
-  //turns volts into pwm amount by manipulating this formula V=(pwmVal/257)Vin, Vin = 7.6V
-  m1vCommand = output / 7.6 * 256;
   //Writes PWM value to motor
   analogWrite(motor1Volt, m1vCommand);
+  
   //Updates times
   Ts = millis() - Tc;
   Tc = millis();
+
+  rad = currentVal * 2 * PI / 3200;
+  Serial.print(millis());
+  Serial.print("\t");
+  Serial.print(rad);
+  Serial.println(" ");
+
+  if(millis() > 7000) {
+      Serial.println("Finished");
+      //stopFlag = true;
+    }
+  
+  //delay(5);
+  }
+}
+
+//Function to return the sign of the values
+int sgn(int val) {
+  if (val < 0) return -1;
+  if (val == 0) return 0;
+  return 1;
+}
+
+
+void serialEvent() {
+  while (Serial.available()) {
+    // get the new byte:
+    char inChar = (char)Serial.read();
+    // add it to the inputString:
+    InputString += inChar;
+    // if the incoming character is a newline, set a flag
+    // so the main loop can do something about it:
+    if (inChar == '\n') {
+      StringComplete = true;
+    }
+  }
 }
