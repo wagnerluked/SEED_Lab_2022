@@ -2,6 +2,7 @@
 
 #include <Encoder.h>
 #include "Arduino.h"
+#include <Wire.h>
 
 //Variables
 
@@ -9,12 +10,15 @@
 String InputString = ""; // a string to hold incoming data
 bool StringComplete = false;
 
-int ENCA = 3;                // Encoder Channel A (Yellow) on int pin 2
-int ENCB = 2;              // Encoder Channel B (White) on pin X 
+//Encoder variables
+int ENCA = 3;               // Encoder Channel A (Yellow) on int pin 2
+int ENCB = 2;               // Encoder Channel B (White) on pin X 
 Encoder enc(ENCA, ENCB);
 
 //Constants
 const float Pi = 3.14159;
+float umax = 7.5;           //Max battery voltage
+#define SLAVE_ADDRESS 0x04
 
 //Motor pins
 int enable = 4;
@@ -25,47 +29,35 @@ int motor2Dir = 8;
 int statusFlag = 12;
 
 //Motor Contol
-//Motor volt pwm command
 float m1vCommand = 0;
-int m2vCommand = 0;
-
-//Encoder and calculations
-int currentPos = 0;
-int lastPos = 0;
-volatile int counts = 0;
-float angularVel = 0;
-
-//Time
-int period = 5;
-unsigned long currentTime = 0;
-int stopFlag;
-bool newValue = true;
+float m2vCommand = 0;
 
 //Controller
   float Kp = 1.25; // v/rad
   float Ki = 0.00008;
   float I = 0;
-  float error = 0;
-  float output = 0;
-  float umax = 7.5;
-  int Ts = 0;
-  int Tc = 0;
+  int quad = 0;
   int refVal = 0;
   int currentVal = 0;
-  int quad = 0;
+  float radPosition = 0;
+  float error = 0;
   float radError = 0;
-
-
-  float rad = 0;
+  float output = 0;
+  int Ts = 0;
+  int Tc = 0;
+  bool encoderResetFlag = true;
 
 void setup() {
   Serial.begin(115200);
-
-  // reserve 200 bytes for the inputString:
+  // Reserve 200 bytes for the inputString:
   InputString.reserve(200);
   Serial.println("Ready!"); // Let anyone on the other end of the serial line know that Arduino is ready
-  stopFlag = false;
-
+  
+  //Define callbacks for i2c communication
+  Wire.begin(SLAVE_ADDRESS);  // For I2C
+  Wire.onReceive(receiveData);
+  Wire.onRequest(sendData);
+  
   //Configures pins
   pinMode(ENCA, INPUT_PULLUP);
   pinMode(ENCB, INPUT);
@@ -75,7 +67,9 @@ void setup() {
   pinMode(motor1Volt, OUTPUT);
   pinMode(motor2Volt, OUTPUT);
   pinMode(statusFlag, INPUT);
+  pinMode(13, OUTPUT);  // For I2C
 
+  //Set initial vlaues
   digitalWrite(enable, HIGH);
   //Low = forward, high = reverse;
   digitalWrite(motor1Dir, LOW);
@@ -87,63 +81,70 @@ void loop() {
   if (StringComplete) {
     StringComplete = false;
   }
-
+  
   if(millis() > 1000){
-    
+  //Sets reference value given quadrant from PY
+  if(quad == 1) {
+    //Fixes encoder counts based on previous position of motor
+    if(encoderResetFlag == true) {
+      refVal = 0; //counts
+    } else {
+      refVal = 3200; //counts
+    } 
+  }
+  else if(quad == 2){
+    refVal = 800; //counts
+    encoderResetFlag = true;
+    }
+  else if(quad == 3) {
+    refVal = 1600; //counts
+    encoderResetFlag = false;
+  }
+  else if(quad == 4) {
+    refVal = 2400; //counts
+    encoderResetFlag = false;
+  }
+  else refVal = 0;
   
-  //read in value here***********************************************
-  //quad = readin;
-
-  //Sets reference value given quadrant
-  if(quad == 1) refVal = 0;
-  else if(quad == 2) refVal = 800;
-  else if(quad == 3) refVal = 1600;
-  else if(quad == 4) refVal = 2400;
-  
-  //gets current position of motor
-  currentVal = enc.read();
+  //Gets current position of motor
+  currentVal = enc.read(); //counts
   
   //Calculates error
-  error = refVal - currentVal;
-  radError = error * 2 * PI / 3200;
+  error = refVal - currentVal; //counts
+  radError = error * 2 * PI / 3200; //radians
+  
   //Provides error bounds
   if(abs(error) <= 25){
     radError = 0;
+    //Sets encoder counts back to zero if motor has done one full revolution
+    if(currentVal > 3150) {
+      enc.write(0);
+      encoderResetFlag = true;
+    }
   }
  
   //Gets integral value
   I = I + (Ts * radError);
   //Calculates output error in volts
-  output = (Kp * radError) + (Ki * I);
+  output = (Kp * radError) + (Ki * I); //Volts
 
-//Serial.print(error);
-//  Serial.print("\t");
-
-//Keeps output confined to voltage range of battery
+  //Keeps output confined to voltage range of battery
   if (abs(output)> umax) {
-    output = sgn(output)* umax;
-    error = sgn(radError)* min(umax / Kp, abs(radError));
+    output = sgn(output)* umax; //Volts
+    radError = sgn(radError)* min(umax / Kp, abs(radError)); //Radians
     I = (output - (Kp * error)) / Ki;
   }
   
-  //Sets direction based on if error is pos or neg
-  if(sgn(radError) == -1) {
+  //Sets motor direction based on if error is pos or neg
+  if(sgn(error) == -1) {
     digitalWrite(motor1Dir, HIGH);
   }
   else {
     digitalWrite(motor1Dir, LOW);
   }
 
-  //turns volts into pwm amount
-  m1vCommand = abs(output) / 7.6 * 256;
-
-
-//  Serial.print(error);
-//  Serial.print("\t");
-//  Serial.print(output);
-//  Serial.print("\t");
-//  Serial.println(m1vCommand);
-
+  //turns volts into PWM value
+  m1vCommand = abs(output) / 7.6 * 256; //PWM
   
   //Writes PWM value to motor
   analogWrite(motor1Volt, m1vCommand);
@@ -152,20 +153,24 @@ void loop() {
   Ts = millis() - Tc;
   Tc = millis();
 
-  rad = currentVal * 2 * PI / 3200;
-  Serial.print(millis());
-  Serial.print("\t");
-  Serial.print(rad);
-  Serial.println(" ");
+  //Opdates position from counts to radians
+  radPosition = currentVal * 2 * PI / 3200; //Radians
 
-  if(millis() > 7000) {
-      Serial.println("Finished");
-      //stopFlag = true;
-    }
-  
-  //delay(5);
+//  Serial.print(millis());
+//  Serial.print("\t");
+//  Serial.print(radPosition);
+//  Serial.println(" ");
+
+  //Used to stop MATLAB simulation after 7 seconds
+//  if(millis() > 7000) {
+//      Serial.println("Finished");
+//      stopFlag = true;
+//    }
   }
 }
+
+
+//***FUNCTIONS***
 
 //Function to return the sign of the values
 int sgn(int val) {
@@ -174,7 +179,7 @@ int sgn(int val) {
   return 1;
 }
 
-
+//Function used to read in data to MATLAB
 void serialEvent() {
   while (Serial.available()) {
     // get the new byte:
@@ -187,4 +192,20 @@ void serialEvent() {
       StringComplete = true;
     }
   }
+}
+
+//Function used to get value of quad from PY
+void receiveData(int byteCount){
+  Serial.print("data received: ");
+  while(Wire.available()) {
+    quad = Wire.read(); //quad 1,2,3,4
+    Serial.print(quad);
+    Serial.print(' ');
+  }
+  Serial.println(' ');  
+}
+
+//Callback for sending datamm
+void sendData(){
+  Wire.write(quad);
 }
