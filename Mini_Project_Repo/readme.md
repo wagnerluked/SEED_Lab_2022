@@ -1,0 +1,2 @@
+This branch showcases the Mini Project Assignment #3 which uses Arduino and Rasperry Pi I2C Communication to drive a wheel to the quadrant of the PiCamera that an Aruco marker is placed in.
+It is organized to simulate either an open loop (voltage command) or closed loop (position command with PI controller implemented) step response, perform an experimental step response, and quickly compare the results in Matlab.
