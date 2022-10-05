@@ -1,4 +1,4 @@
-# --------------------- Mini Project 1: Arduino Code ----------------------------
+# --------------------- Mini Project 1: Pi Code ----------------------------
 # This code will start out by running the Raspberry Pi camera which will be used to
 # read an aruco marker. This marker will be moved to each corner of the cameras
 # available sight and then send the Pi a quadrant number based off of which corner
