@@ -1,17 +1,32 @@
-//*************************************************************************************
-//Assignment: Mini Project
-//Purpose: To turn a wheel to a given quadrant using a PI controller
-//*************************************************************************************
+// --------------------- Mini Project 1: Arduino Code ----------------------------
+// This code will start out by running the Raspberry Pi camera which will be used to
+// read an aruco marker. This marker will be moved to each corner of the cameras
+// available sight and then send the Pi a quadrant number based off of which corner
+// the marker is in. Once the Pi receives the quadrant number, it will que up the I2C
+// protocol and send the Arduino that quadrant number. Using a PI controller,
+// the Arduino will then move the motor to the appropriate quadrant.
+// The PI controller was tuned using a simulink model. The Arduino then sends
+// back it's exact location to the Pi via I2C.
+// The Pi will display both the current quadrant and the one that is being
+// read from the Pi camera.
+// ------------------------------------------------------------------------------------
+// Hardware requirements:
+// Raspberry Pi, Arduino and 3 wires to connect them together for the I2C link.
+// LCD display, shield motor controller, motor, battery monitor, switch, and battery.
+// Raspberry Pi camera and aruco marker.
+// Various cables and wires for connecting everything.
+// ------------------------------------------------------------------------------------
 
-//****** Libraries *******
+
+//The purpose of this code is to turn a wheel to a given quadrant using a PI controller
 
 #include <Encoder.h>
 #include "Arduino.h"
 #include <Wire.h>
 
-//****** Variables *******
+//Variables
 
-// Serial communication variables
+// varaibles for serial communication
 String InputString = ""; // a string to hold incoming data
 bool StringComplete = false;
 
@@ -52,7 +67,6 @@ float m2vCommand = 0;
   int Tc = 0;
   bool encoderResetFlag = true;
 
-//*************************************************************************************
 void setup() {
   Serial.begin(115200);
   // Reserve 200 bytes for the inputString:
@@ -82,7 +96,6 @@ void setup() {
   analogWrite(motor1Volt, m1vCommand);
 }
 
-//*************************************************************************************
 void loop() {
   //Clears flag for MATLAB serial reading
   if (StringComplete) {
