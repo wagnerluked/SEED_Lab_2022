@@ -1,0 +1,117 @@
+# --------------------- Mini Project 1: Raspberry Pi Code ----------------------------
+# This code will start out by running the Raspberry Pi camera which will be used to
+# read an aruco marker. This marker will be moved to each corner of the cameras
+# available sight and then send the Pi a quadrant number based off of which corner
+# the marker is in. Once the Pi receives the quadrant number, it will que up the I2C
+# protocol and send the Arduino that quadrant number. The Arduino will then move the
+# motor to the appropriate quadrant and send back it's exact location to the Pi
+# via I2C. The Pi will display both the current quadrant and the one that is being
+# read from the Pi camera.
+# ------------------------------------------------------------------------------------
+# Hardware requirements:
+# Raspberry Pi, Arduino and 3 wires to connect them together for the I2C link.
+# LCD display, shield motor controller, motor, battery monitor, switch, and battery.
+# Raspberry Pi camera and aruco marker.
+# Various cables and wires for connecting everything.
+# ------------------------------------------------------------------------------------
+
+import cv2 as cv
+import numpy as np
+from picamera.array import PiRGBArray
+from picamera import PiCamera
+import time
+import cv2.aruco as aruco
+import smbus2
+import board
+import adafruit_character_lcd.character_lcd_rgb_i2c as character_lcd
+# for RPI version 1, use "bus = smbus.SMBus(0)"
+bus = smbus2.SMBus(1)
+
+# This is the address we setup in the Arduino Program
+address = 0x04
+
+# Modify this if you have a different sized Character LCD
+lcd_columns = 16
+lcd_rows = 2
+# Initialise I2C bus.
+i2c = board.I2C()  # uses board.SCL and board.SDA
+# Initialise the LCD class
+lcd = character_lcd.Character_LCD_RGB_I2C(i2c, lcd_columns, lcd_rows)
+
+# This is used to write a value to the arduino via I2C
+def writeNumber(value):
+    bus.write_byte(address, value)
+    return -1
+
+# This is used to read a value to the arduino via I2C
+def readNumber():
+    number = bus.read_byte(address)
+    return number
+
+#need to:
+#    -calibration step, turn camera on let auto white blance settle to a const, save, auto turned off
+quadrant = 0
+
+cap = cv.VideoCapture(0)
+if not cap.isOpened():
+    print("cannot open camera")
+    exit()
+
+while True:
+    try:
+        #capture frame by frame
+        ret, frame = cap.read()
+        
+        #if frame is read correctly red is True
+        if not ret:
+            print("Can't receive frame (stream end?). Exiting...")
+            break
+        
+        #frame operations
+        gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
+        aruco_dict = aruco.Dictionary_get(aruco.DICT_6X6_250)
+        parameters = aruco.DetectorParameters_create()
+        corners, ids, rejected = aruco.detectMarkers(gray, aruco_dict, parameters=parameters)
+                 
+        #marker position calculation
+        avgx = (corners[0][0][0][0] + corners[0][0][1][0] + corners[0][0][2][0] + corners[0][0][3][0]) / 4
+        avgy = (corners[0][0][0][1] + corners[0][0][1][1] + corners[0][0][2][1] + corners[0][0][3][1]) / 4
+        center = [avgx, avgy]
+        
+        if ((center[0] < 340) & (center[1] < 240)):
+            quadrant = 1
+        elif ((center[0] > 340) & (center[1] < 240)):        
+            quadrant = 2
+        elif center > [340, 240]:
+            quadrant = 3
+        else:
+            quadrant = 4
+        
+        #print(quadrant)
+        gray = aruco.drawDetectedMarkers(gray, corners, ids)
+        
+        #display resulting frame
+        cv.imshow('frame', gray) 
+        if cv.waitKey(1) == ord('q'):
+            break
+        
+        #This will write and read the quadrant from and to the arduino
+        writeNumber(quadrant)
+        number = readNumber()
+        print ("Arduino: Hey RPI, I received a digit %s" % number)
+        
+        #This is for the LCD screan
+        lcd.clear()
+        # Set LCD color to red
+        lcd.color = [50, 0, 50]
+        # Print two line message
+        lcd.message = "sent: "+ str(quadrant) +"\ngot: " + str(number)
+        
+    except: #allows program to run when marker is not present
+        if cv.waitKey(1) == ord('q'):
+            break
+        continue
+    
+#release capture when task is complete
+cap.release()
+cv.destroyAllWindows()
