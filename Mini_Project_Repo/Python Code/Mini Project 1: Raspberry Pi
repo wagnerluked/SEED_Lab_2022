@@ -1,11 +1,13 @@
-# --------------------- Mini Project 1: Raspberry Pi Code ----------------------------
+# --------------------- Mini Project 1: Arduino Code ----------------------------
 # This code will start out by running the Raspberry Pi camera which will be used to
 # read an aruco marker. This marker will be moved to each corner of the cameras
 # available sight and then send the Pi a quadrant number based off of which corner
 # the marker is in. Once the Pi receives the quadrant number, it will que up the I2C
-# protocol and send the Arduino that quadrant number. The Arduino will then move the
-# motor to the appropriate quadrant and send back it's exact location to the Pi
-# via I2C. The Pi will display both the current quadrant and the one that is being
+# protocol and send the Arduino that quadrant number. Using a PI controller,
+# the Arduino will then move the motor to the appropriate quadrant.
+# The PI controller was tuned using a simulink model. The Arduino then sends
+# back it's exact location to the Pi via I2C.
+# The Pi will display both the current quadrant and the one that is being
 # read from the Pi camera.
 # ------------------------------------------------------------------------------------
 # Hardware requirements:
