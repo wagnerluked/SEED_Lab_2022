@@ -17,7 +17,7 @@
 # Various cables and wires for connecting everything.
 # ------------------------------------------------------------------------------------
 
-import cv2 as cv
+import cv2 as cv #relevant CV, Aruco, and numpy libraries 
 import numpy as np
 from picamera.array import PiRGBArray
 from picamera import PiCamera
@@ -54,8 +54,8 @@ def readNumber():
 #    -calibration step, turn camera on let auto white blance settle to a const, save, auto turned off
 quadrant = 0
 
-cap = cv.VideoCapture(0)
-if not cap.isOpened():
+cap = cv.VideoCapture(0) #create video capture object
+if not cap.isOpened(): #check camera functionality 
     print("cannot open camera")
     exit()
 
@@ -70,16 +70,20 @@ while True:
             break
         
         #frame operations
+        #each frame is treated as a single image in terms of operations, converted to grayscale
         gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
-        aruco_dict = aruco.Dictionary_get(aruco.DICT_6X6_250)
-        parameters = aruco.DetectorParameters_create()
-        corners, ids, rejected = aruco.detectMarkers(gray, aruco_dict, parameters=parameters)
+        aruco_dict = aruco.Dictionary_get(aruco.DICT_6X6_250) #import relevant Aruco marker dictionary 
+        parameters = aruco.DetectorParameters_create() 
+        corners, ids, rejected = aruco.detectMarkers(gray, aruco_dict, parameters=parameters) #detects Aruco markers and returns relevant information
                  
         #marker position calculation
+        #center position contains two elements, which are the average window positions of the Aruco markers
+        #respective averages of x and y coordinates of Aruco corner positions 
         avgx = (corners[0][0][0][0] + corners[0][0][1][0] + corners[0][0][2][0] + corners[0][0][3][0]) / 4
         avgy = (corners[0][0][0][1] + corners[0][0][1][1] + corners[0][0][2][1] + corners[0][0][3][1]) / 4
         center = [avgx, avgy]
         
+        #simple comparison determines value of quadrant, which is then sent to the Arduino and determines the desired set position of the motor 
         if ((center[0] < 340) & (center[1] < 240)):
             quadrant = 1
         elif ((center[0] > 340) & (center[1] < 240)):        
@@ -89,7 +93,7 @@ while True:
         else:
             quadrant = 4
         
-        #print(quadrant)
+        #print corners and ids on frame
         gray = aruco.drawDetectedMarkers(gray, corners, ids)
         
         #display resulting frame
