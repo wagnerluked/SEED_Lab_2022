@@ -1,5 +1,6 @@
-//The purpose of this code is to find the transfer function of a two motor
-//by applying a step input
+/*
+The purpose of this code is to control our rover. The user provides the desired angular position and forward position. The code uses a PI controller for angualar position. The output of that controller is a target angualr velocity. The target angular velocity is fed into a propotional angular velocity controller whose output is a voltage that is converted int PWM counts and sent to motor1 and motor2 of the rover to control angular velocity. Once the error of our target angular position is negligable. The angular velocity controller turns off and the forward veloctiy controller turnes on. The forward velocity controller is a proportional controller whose input in a desired forward velocity that is set by the user. The set forward velocity is 12 in/sec because this is a reasonalbe velocity that the rover is able to acheive. The output of the forward velocity controller is a voltage that is converted to PWM counts and sent to motor1 and motor2 of the rover to control forward velocity. Once the error of our target forward distance and our actual forward distance is negigible, the forward velocity is set to zero.
+*/
 
 #include <Encoder.h>
 #include "Arduino.h"
