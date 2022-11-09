@@ -1,4 +1,4 @@
-//The purpose of this code is to find the transfer function of a two motor
+ //The purpose of this code is to find the transfer function of a two motor
 //by applying a step input
 
 #include <Encoder.h>
@@ -15,6 +15,20 @@ Encoder enc1(m1ENCA, m1ENCB);
 Encoder enc2(m2ENCA, m2ENCB);
 
 // varaibles for serial communication
+
+//STATE Variables
+int STATE = 0;
+int turnFlag = true;
+int onceFlag = false;
+
+ //Prototypes
+float angular();
+
+float forward();
+
+
+
+
 String InputString = ""; // a string to hold incoming phiTarget_counts
 bool StringComplete = false;
 
@@ -80,7 +94,7 @@ float m2Theta_dot = 0;
   unsigned long currentTime = 0;
 
 //Phi PID Controller
-  float phiKp = 6;//4.5;    //0.13; // v/rad
+  float phiKp = 6.5;//6;    //0.13; // v/rad
   float phiKd = 0;
   float phiKi = 0.0001;
   float phiD = 0;
@@ -89,7 +103,7 @@ float m2Theta_dot = 0;
   float phiErrorPast = 0;
 
 //Phi_dot PI Controller
-  float phi_dotKp = 3; // v/rad //3.5
+  float phi_dotKp = 10;//7;//5;//3; // v/rad //3.5
   float phi_dotKi = 0.0000000000000001;      //0.00025
   float phi_dotI = 0;
   float phi_dotError = 0;
@@ -144,93 +158,106 @@ void loop() {
   if(millis() >= 1000 && millis() - currentTime >= period){
     currentTime = millis();
 
-    //Keeps robot moving in circle to find marker
-    if (phiTarget_counts[1] == 0) {
-      phi = 0;
-      phiTarget = 0.25;
+  //*********************************************************************//
+  // START    STATE MACHINE
+  //*********************************************************************//
+    switch (STATE) {
+        //Turning to find marking
+        case 0: 
+
+        //Updates to STATE 1 if we receive value from camera
+            if(turnFlag == false) {
+              forwardVolt = 0;
+              angularVolt = 0;
+              //phi = phiTarget;
+              phiI = 0;
+              phi = 0;
+              //rho = 0.5;
+              //forwardFlag = true;
+              analogWrite(motor1Volt, 0);
+              analogWrite(motor2Volt, 0);
+              delay(250);
+              
+              STATE = 1;
+              //phi = 0;
+            }
+            
+            phiTarget = -0.5;
+            //phiI = 0;
+            angularVolt = angular();
+
+            if(abs(phiError) <= abs(0.15)) {
+              //Serial.print("here");
+              phi = 0;
+              analogWrite(motor1Volt, 0);
+              analogWrite(motor2Volt, 0);
+              delay(375);
+            }
+
+            
+        break;
+
+        //Turning until aligned with marker
+        case 1:
+            //phi = 0;
+            if (onceFlag == false) {
+              phiTarget = phiTarget_counts[1] * 2 * PI / COUNTS_PER_REV; //radians
+              onceFlag = true;
+              //Fudge value for rotational position
+              if (phiTarget != 0) {
+                phiFudge = (phiTarget - (2 * PI)) * 0.0333; //0.005 for pi, 0.015 for 2PI
+                phiTarget = phiTarget + phiFudge;
+              }
+            }
+                    
+            angularVolt = angular();
+
+            if(abs(phiError) <= .2) {
+              //Serial.print("here:");
+                forwardVolt = 0;
+                angularVolt = 0;
+                phi = phiTarget;
+                phiI = 0;
+                rho = 0.5;
+                forwardFlag = true;
+                analogWrite(motor1Volt, 0);
+                analogWrite(motor2Volt, 0);
+                delay(500);
+                STATE = 2;
+            }
+        break;
+
+        //Forward until camera says stop
+        case 2:
+            //phiTarget = phiTarget_counts[1] * 2 * PI / COUNTS_PER_REV; //radians
+            angularVolt = angular();
+            forwardVolt = forward();
+            if(forwardFlag == false) {
+                STATE = 3;
+                rho = 0;
+            }
+        break;
+
+        //Forward until over top marker
+        case 3: 
+            //rho = 0;                               //********************************************
+            rhoTarget = 0;//8.3; //8.85 for 30 cm//************************ value needs tuned to get on top of marker
+            angularVolt = angular();                //********************************************
+            forwardVolt = forward();
+            if(rho >= 0.99 * rhoTarget) {
+                STATE = 4;
+            }
+        break;
+
+        //Stop everything
+        case 4: 
+            forwardVolt = 0;
+            angularVolt = 0;
+        break;
     }
-    else {
-      //Sets rotational distance target based on position of the marker
-      phiTarget =  phiTarget_counts[1] * 2 * PI / COUNTS_PER_REV; //radians
-      dataReceived = true;
-      //Fudge value for rotational position
-      if (phiTarget != 0) {
-        phiFudge = (phiTarget - (2 * PI)) * 0.015; //0.005 for pi, 0.015 for 2PI
-        phiTarget = phiTarget - phiFudge;
-      }
-    }
-
-    //Sets forward distance tartget
-    rhoTarget = 0;
-
   //*********************************************************************//
-  // START    PHI PID CONTROLLER   OUTER LOOP
+  // END    STATE MACHINE
   //*********************************************************************//
-    //Calculates phiError   
-    phiError = phiTarget - phi; //rads
-
-    //Calculates integal term
-    phiI = phiI + (Ts * phiError);
-    if(abs(phiError) <= 0.01) phiI = 0;
-    
-    //Calculates desired angular velocity input
-    phi_dotTarget = (phiKp * phiError) + (phiKi * phiI); //
-    
-  //*********************************************************************//
-  // END   PHI PID CONTROLLER    OUTER LOOP
-  //*********************************************************************//
-
-  //*********************************************************************//
-  // START    PHI_DOT PI CONTROLLER   INNER LOOP
-  //*********************************************************************//
-    //Increases phi_dot slowly to eliminate jumping
-    if(phi_dotIncrement <= 20) {
-        phi_dotTarget = phi_dotTarget * 0.05 * phi_dotIncrement;
-        phi_dotIncrement++;
-    }
-
-    //Calculates phi_dotError
-    phi_dotError = phi_dotTarget - phi_dot; //rads/sec
-
-    angularVolt = (phi_dotKp * phi_dotError); //volts
-    
-  //*********************************************************************//
-  // END   PHI_DOT PI CONTROLLER    INNER LOOP
-  //*********************************************************************//
-
-
-  //*********************************************************************//
-  // START    RHO_DOT PI CONTROLLER   INNER LOOP
-  //*********************************************************************//   
-    //Sets a forward velocity once the phi has reached its target
-     if(forwardFlag == true && killFlag == false) { //turns on forward velocity
-         rho_dotTarget = 12;
-        //Increases rho_dot slowly to eliminate jumping
-        if(rho_dotIncrement <= 20) {
-            rho_dotTarget = rho_dotTarget * 0.05 * rho_dotIncrement;
-            rho_dotIncrement++;
-        }
-        //if(rho >= 0.99 * rhoTarget) rho_dotTarget = 0; **************************************************************************************
-    
-      //Calculates rho_dotError
-        rho_dotError = rho_dotTarget - rho_dot; //rads/sec
-        forwardVolt = (rho_dotKp * rho_dotError);
-      } else if(killFlag == true) { //Turns off forward velocity
-        rho_dotTarget = 0;
-        //Calculates rho_dotError
-        rho_dotError = rho_dotTarget - rho_dot; //rads/sec
-        forwardVolt = (rho_dotKp * rho_dotError);
-
-        //resets flags
-        forwardFlag = false;
-        dataReceived = false;
-
-      }
-
-  //*********************************************************************//
-  // END   RHO_DOT PI CONTROLLER    INNER LOOP
-  //*********************************************************************//
-
 
   //*********************************************************************//
   // START    IMPLMENTING CALULATED VOLTAGES
@@ -255,16 +282,6 @@ void loop() {
     
     analogWrite(motor1Volt, m1PWM);
     analogWrite(motor2Volt, m2PWM);
-
-    if(abs(phiError) <= 0.15 && forwardFlag == false && dataReceived == true) {
-      analogWrite(motor1Volt, 0);
-      analogWrite(motor2Volt, 0);
-      phi = phiTarget;
-      phiI = 0;
-      rho = 0.5;
-      forwardFlag = true;
-      delay(500);
-    }
     
   //*********************************************************************//
   // END    IMPLMENTING CALULATED VOLTAGES
@@ -272,7 +289,7 @@ void loop() {
 
 
   //*********************************************************************//
-  // START    CALCULATE RHO_DOT AND PHI_DOT
+  // START    CALCULATE RHO AND PHI AND RHO_DOT AND PHI_DOT
   //*********************************************************************//
     //Gets current position
     m1Counts = -1 * enc1.read(); //counts
@@ -314,13 +331,13 @@ void loop() {
 //    //Serial.print("\t");
 //    //Serial.print(phiTarget_counts);
 //    Serial.print("\t");
- Serial.print(phiTarget_counts[1]);
-   Serial.print("\t");
-   Serial.print(phiTarget);
-   Serial.print("\t");
-    Serial.print(phi);
+//    Serial.print(phiTarget_counts[1]);
 //    Serial.print("\t");
-//    Serial.print(phi_dotTarget);
+    Serial.print(phiTarget);
+    Serial.print("\t");
+    Serial.print(phi);
+    Serial.print("\t");
+    Serial.print(phiError);
     Serial.println(" ");
   }
   //*********************************************************************//
@@ -366,15 +383,79 @@ void receivephiTarget_counts(int byteCount){
 
   // if offset = 0 then run this statement
   if (phiTarget_counts[0] == 0){
-    phiTarget_counts[i] = phiTarget_counts[i] * -1;
-    Serial.print(phiTarget_counts[i]);
-    Serial.println(' ');
+    turnFlag = false;
+    phiTarget_counts[i] = phiTarget_counts[i];
+    //Serial.print(phiTarget_counts[i]);
+    //Serial.println(' ');
   }
 
   // if offset = 1 then run this statement
   if (phiTarget_counts[0] == 1){
-    phiTarget_counts[i] = phiTarget_counts[i];
-    Serial.print(phiTarget_counts[i]);
+    turnFlag = false;
+    phiTarget_counts[i] = phiTarget_counts[i] * -1;
+    //Serial.print(phiTarget_counts[i]);
+    //Serial.println(' ');
+  }
+
+
+  if (phiTarget_counts[0] == 2){
+    forwardFlag = false;  
+    Serial.print("STOP!!!!!");
     Serial.println(' ');
   }
+//    if (phiTarget_counts[0] == 3){
+//    turnFlag = false;
+//    Serial.print("No Marker Detected");
+//    Serial.println(' ');
+//  }
 }
+
+
+ 
+//Angular Func to return angular voltage
+float angular(){
+ //Calculates phiError   
+    phiError = phiTarget - phi; //rads
+
+    //Calculates integal term
+    phiI = phiI + (Ts * phiError);
+    if(abs(phiError) <= 0.01) phiI = 0;
+    
+    //Calculates desired angular velocity input
+    phi_dotTarget = (phiKp * phiError) + (phiKi * phiI);
+    
+    //Increases phi_dot slowly to eliminate jumping
+    if(phi_dotIncrement <= 20) {
+        phi_dotTarget = phi_dotTarget * 0.05 * phi_dotIncrement;
+        phi_dotIncrement++;
+    }
+
+    //Calculates phi_dotError
+    phi_dotError = phi_dotTarget - phi_dot; //rads/sec
+
+    angularVolt = (phi_dotKp * phi_dotError); //volts
+
+    //Serial.println(angularVolt);
+
+    return angularVolt;
+}
+
+//Forward Func to return forward voltage
+float forward(){
+   //Sets a forward velocity once the phi has reached its target
+         rho_dotTarget = 23;
+        //Increases rho_dot slowly to eliminate jumping
+        if(rho_dotIncrement <= 20) {
+            rho_dotTarget = rho_dotTarget * 0.05 * rho_dotIncrement;
+            rho_dotIncrement++;
+        }
+    
+      //Calculates rho_dotError
+        rho_dotError = rho_dotTarget - rho_dot; //rads/sec
+        forwardVolt = (rho_dotKp * rho_dotError);
+
+        //Serial.println(forwardVolt);
+
+        return forwardVolt;
+
+  }
