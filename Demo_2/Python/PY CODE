@@ -1,6 +1,10 @@
 #Jamie Armstrong
 #EENG350 Demo 2 Computer Vision Subsystem
 #Angle and Distance Detection
+#This program serves an essential role in our Demo 2 tasks. The program detects any Aruco markers that enter the Pi camera's field of
+#view, and determines the distance between the camera and the marker, as well as the angle between the central camera axis and the marker.
+#From here, I2C communication is utilized to transmit the target angle to the Arduino contrller, and provide instruction on when to stop
+#moving forward. In many respects it is a modification of our previous computer vision code. 
 
 import adafruit_character_lcd.character_lcd_rgb_i2c as character_lcd
 from picamera.array import PiRGBArray
@@ -8,18 +12,14 @@ from picamera import PiCamera
 import cv2.aruco as aruco
 import smbus2
 import numpy as np
-import pickle
 import board
 import busio
 import time
 import cv2
 
-# Global Variables
 bus = smbus2.SMBus(1)
 address = 0x04
 desiredPos = 0
-lcd_columns = 16
-lcd_rows = 2
 offSet = 0
 
 # This is used to write a value to the arduino via I2C
@@ -27,7 +27,7 @@ def writeText(value):
     bus.write_byte_data(address, offSet, value)
     return -1
 
-# initialize the camera, grab reference to raw camera capture
+#initialize the camera, grab reference to raw camera capture
 camera = PiCamera()
 
 width, height = (640, 480)
@@ -35,94 +35,71 @@ camera.resolution = (width, height)
 camera.framerate = 20
 rawCapture = PiRGBArray(camera, size=camera.resolution)
 
-# Allow the camera to warmup
+#camera to warmup
 time.sleep(0.1)
 
-# Set ISO to desired value
+#set ISO to desired value
 camera.iso = 100
 
-# Wait for automatic gain control to settle
+#wait for automatic gain control to settle
 time.sleep(2)
 
-# Now fix values
+#now fix values
 camera.shutter_speed = camera.exposure_speed
 camera.exposure_mode = 'off'
 g = camera.awb_gains
 camera.awb_mode = 'off'
 camera.awb_gains = g
 
-# Camera Parameters
-objects = []
-with (open("camera_params.p", "rb")) as openfile:
-    while True:
-        try:
-            objects.append(pickle.load(openfile))
-        except EOFError:
-            break
+#camera parameters used later in determining marker pose, and subsequently distance/angle
+K = np.array([[426.7, 0, 332], [0, 412, 272.3], [0, 0, 1]])
+distCoeffs = np.array([-.010, .045, -.007, .003, -.163])
 
-K = objects[0]['M']
-distCoeffs = objects[0]['coefs_dist']
-
-#distCoeffs = [-.010, .045, -.007, .003, -.163]
-
-# Create dictionary and parameters
+#dictionary and parameters
 aruco_dict = aruco.Dictionary_get(aruco.DICT_6X6_250)
 parameters = aruco.DetectorParameters_create()
 MARKER_LENGTH = 5  # cm
 
-# capture frames from the camera
+#capture frames from the camera
 for frame in camera.capture_continuous(rawCapture, format="bgr", use_video_port=True):
-    # grab the raw NumPy array representing the image, then initialize the timestamp
-    # and occupied/unoccupied text
     image = frame.array
 
-    # clear the stream in pre
+    #clear stream
     rawCapture.truncate(0)
 
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-    # Detect Markers
+    #detect markers
     corners, ids, rejectedImgPoints = aruco.detectMarkers(gray, aruco_dict, parameters=parameters)
 
-    # Get Pose
+    #estimate marker pose
     rvecs, tvecs, _ = aruco.estimatePoseSingleMarkers(corners, markerLength=MARKER_LENGTH, cameraMatrix=K, distCoeffs=distCoeffs)
 
-    if ids is None:
+    if ids is None: #check for markers appearing in frame
         pass
-#        print("no markers")
     
     else:
-        marker_id = ids[0, 0]
-        marker_corners = corners[0]
         rvec = rvecs[0]
         tvec = tvecs[0]
         
-        # Display axis on marker
-        #image = aruco.drawAxis(image, cameraMatrix=K, distCoeffs=None, rvec=rvec, tvec=tvec, length = 1)
-        
         #angle and distance detection
         phi = (-1) * np.arctan2(tvec[0,0], tvec[0,2])
-        rho = tvec[0][2]
-#        print("rho: ", rho)
-#        print("phi: ", np.rad2deg(phi), "\n")
-        #print(K)
-#        print(distCoeffs)
-        phi_cnts = int(np.rad2deg(phi) * 3200 / 360)
-#        print(phi_cnts)
-        #This will write and read the quadrant from and to the arduino
-        if (ids != None):
-            if(phi_cnts < 0):
+        rho = tvec[0][2]  #interprets Z distance of translation vector as distance from camera in cm
+        phi_cnts = int(np.rad2deg(phi) * 3200 / 360) #get phi into an integer representing encoder counts to be sent to Arduino
+        #This will send movement commands to Arduino controller via I2C, offSet value determines state of Arduino FSM by changing a single bit
+        if (ids != None): #if a marker appears in frame, interpret phi_cnts as target angle
+            if(phi_cnts < 0): #negative angle, corresponds to inversion of calculations in Arduino code
                 offSet = 0
                 offSet = int(offSet)
                 phi_cnts = abs(phi_cnts)
-            else:
+            else: #positive angle
                 offSet =  1
                 offSet = int(offSet)
                 phi_cnts = abs(phi_cnts)
-        if (rho < 30):
+        if (rho < 30): #"stop" bit is sent, halting forward movement
             offSet = 2
             offSet = int(offSet)
-        if(ids is None):
+        if(ids is None): #if no markers present, set offSet=3, corresponding to searching state
             offSet = 3
             offSet = int(offSet)
         try:                       #Added for error handling
@@ -130,14 +107,12 @@ for frame in camera.capture_continuous(rawCapture, format="bgr", use_video_port=
         except:                    #Added for error handling
             writeText(phi_cnts)
             
-        
-    #image = aruco.drawDetectedMarkers(image, corners)
 
-    cv2.imshow('frame', gray) 
+    cv2.imshow('frame', gray)  #display video stream in window
     if cv2.waitKey(1) == ord('q'):
-        break
+        break #close window
      
-cv2.destroyAllWindows()
+cv2.destroyAllWindows() #end of program
 
 
 
