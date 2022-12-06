@@ -14,7 +14,7 @@ int m2ENCB = 5;
 Encoder enc1(m1ENCA, m1ENCB);
 Encoder enc2(m2ENCA, m2ENCB);
 
-// varaibles for serial communication
+// variables for serial communication
 
 //STATE Variables
 int STATE = 0;
@@ -112,7 +112,7 @@ float m2Theta_dot = 0;
   int phi_dotIncrement = 1;
 
 //Rho_dot PI Controller
-  float rho_dotKp = 1.6; // v/rad //1
+  float rho_dotKp = 1.6;// 1.6; // v/rad //1
   float rho_dotKi = 0.00000000000000001;    //0.00003
   float rho_dotI = 0;
   float rho_dotError = 0;
@@ -178,13 +178,13 @@ void loop() {
               //forwardFlag = true;
               analogWrite(motor1Volt, 0);
               analogWrite(motor2Volt, 0);
-              delay(500);
+              delay(350);
               
               STATE = 1;
               //phi = 0;
             }
             
-            phiTarget = -0.5;
+            phiTarget = -0.6;
             //phiI = 0;
             angularVolt = angular();
 
@@ -193,7 +193,7 @@ void loop() {
               phi = 0;
               analogWrite(motor1Volt, 0);
               analogWrite(motor2Volt, 0);
-              delay(500); //375
+              delay(350); //375
             }
 
             
@@ -241,7 +241,7 @@ void loop() {
                 forwardFlag = true;
                 analogWrite(motor1Volt, 0);
                 analogWrite(motor2Volt, 0);
-                delay(500);
+                delay(350);
                 STATE = 2;
             }
         break;
@@ -279,7 +279,7 @@ void loop() {
             analogWrite(motor1Volt, 0);
             analogWrite(motor2Volt, 0);
             delay(5000);
-             if (numMarkers == 6) {
+             if (numMarkers == 5) {
               STATE = 5;
             } else {
               STATE = 0;
@@ -499,5 +499,4 @@ float forward(){
         //Serial.println(forwardVolt);
 
         return forwardVolt;
-
   }
